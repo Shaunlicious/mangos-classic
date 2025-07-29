@@ -59,14 +59,15 @@
 #include <limits>
 #include <array>
 
+float moveSpeedMultiplier = 1.2f; // Added to increase base movement speed across the board 
 float baseMoveSpeed[MAX_MOVE_TYPE] =
 {
-    2.5f,                                                   // MOVE_WALK
-    7.0f,                                                   // MOVE_RUN
-    4.5f,                                                   // MOVE_RUN_BACK
-    4.722222f,                                              // MOVE_SWIM
-    2.5f,                                                   // MOVE_SWIM_BACK
-    3.141594f,                                              // MOVE_TURN_RATE
+    2.5f * moveSpeedMultiplier,                                                   // MOVE_WALK
+    7.0f * moveSpeedMultiplier,                                                   // MOVE_RUN
+    4.5f * moveSpeedMultiplier,                                                   // MOVE_RUN_BACK
+    4.722222f * moveSpeedMultiplier,                                              // MOVE_SWIM
+    2.5f * moveSpeedMultiplier,                                                   // MOVE_SWIM_BACK
+    3.141594f * moveSpeedMultiplier,                                              // MOVE_TURN_RATE
 };
 
 typedef std::array<uint32, NUM_SPELL_PARTIAL_RESISTS> SpellPartialResistChanceEntry;
