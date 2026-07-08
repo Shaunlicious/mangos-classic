@@ -73,6 +73,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #endif
 
+#include <algorithm>
 #include <cmath>
 
 #define ZONE_UPDATE_INTERVAL (1*IN_MILLISECONDS)
@@ -581,6 +582,7 @@ Player::Player(WorldSession* session): Unit(), m_taxiTracker(*this), m_mover(thi
     m_canBlock = false;
     m_ammoDPSMin = 0.0f;
     m_ammoDPSMax = 0.0f;
+    m_highestAmmoMod = 0;
 
     m_temporaryUnsummonedPetNumber = 0;
     m_BGPetSpell = 0;
@@ -2043,6 +2045,9 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
         // near teleport, triggering send MSG_MOVE_TELEPORT_ACK from client at landing
         if (!GetSession()->PlayerLogout())
             SendTeleportPacket(x, y, z, orientation, currentTransport);
+
+        if (Loot* loot = sLootMgr.GetLoot(this))
+            loot->Release(this);
     }
     else
     {
@@ -2113,6 +2118,9 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
                 GetSession()->SendPacket(data);
             }
 
+            if (Loot* loot = sLootMgr.GetLoot(this))
+                loot->Release(this);
+
             // remove from old map now
             if (oldmap)
                 oldmap->Remove(this, false);
@@ -2163,6 +2171,7 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
         else                                                // !map->CanEnter(this)
             return false;
     }
+
     return true;
 }
 
@@ -4789,15 +4798,15 @@ void Player::LeaveLFGChannel()
     }
 }
 
-void Player::UpdateDefense()
+void Player::UpdateDefense(uint32 procEx)
 {
     uint32 defense_skill_gain = sWorld.getConfig(CONFIG_UINT32_SKILL_GAIN_DEFENSE);
 
-    if (UpdateSkill(SKILL_DEFENSE, defense_skill_gain))
-    {
-        // update dependent from defense skill part
-        UpdateDefenseBonusesMod();
-    }
+    if (defense_skill_gain == 0)
+        return;
+
+    UpdateSkill(SKILL_DEFENSE, defense_skill_gain);
+    UpdateDefenseBonusesMod();
 }
 
 void Player::HandleBaseModValue(BaseModGroup modGroup, BaseModType modType, float amount, bool apply)
@@ -5014,18 +5023,21 @@ void Player::SetRegularAttackTime()
     }
 }
 
-bool Player::UpdateSkill(uint16 id, uint16 diff)
+void Player::UpdateSkill(uint16 id, uint16 diff)
 {
     if (!id)
-        return false;
+        return;
+
+    if (diff == 0)
+        return;
 
     SkillStatusMap::iterator itr = mSkillStatus.find(id);
     if (itr == mSkillStatus.end())
-        return false;
+        return;
 
     SkillStatusData& skillStatus = itr->second;
     if (skillStatus.uState == SKILL_DELETED)
-        return false;
+        return;
 
     uint32 valueIndex = PLAYER_SKILL_VALUE_INDEX(skillStatus.pos);
     uint32 data = GetUInt32Value(valueIndex);
@@ -5033,23 +5045,18 @@ bool Player::UpdateSkill(uint16 id, uint16 diff)
     uint32 max = SKILL_MAX(data);
 
     if ((!max) || (!value) || (value >= max))
-        return false;
+        return;
 
-    if (value * 512 < max * urand(0, 512))
-    {
-        uint32 new_value = value + diff;
-        if (new_value > max)
-            new_value = max;
+    uint32 new_value = value + diff;
+    if (new_value > max)
+        new_value = max;
 
-        SetUInt32Value(valueIndex, MAKE_SKILL_VALUE(new_value, max));
+    SetUInt32Value(valueIndex, MAKE_SKILL_VALUE(new_value, max));
 
-        if (skillStatus.uState != SKILL_NEW)
-            skillStatus.uState = SKILL_CHANGED;
+    if (skillStatus.uState != SKILL_NEW)
+        skillStatus.uState = SKILL_CHANGED;
 
-        return true;
-    }
-
-    return false;
+    return;
 }
 
 inline int SkillGainChance(uint32 SkillValue, uint32 GrayLevel, uint32 GreenLevel, uint32 YellowLevel)
@@ -5231,28 +5238,64 @@ void Player::UpdateWeaponSkill(WeaponAttackType attType)
     UpdateAllCritPercentages();
 }
 
-void Player::UpdateCombatSkills(Unit* pVictim, WeaponAttackType attType, bool defence)
+void Player::UpdateCombatSkills(uint32 procEx, WeaponAttackType attType, bool defence)
 {
     const uint16 skillId = (defence ? SKILL_DEFENSE : GetWeaponSkillIdForAttack(attType));
     const uint16 skill = GetSkillValuePure(skillId);
-    const uint16 cap = GetSkillMaxPure(skillId);
-    const int32 room = int32(cap - skill);
+    const uint16 skillMax = GetSkillMaxPure(skillId);
+    const int32 room = int32(skillMax - skill);
+    const int32 level = GetLevel();
 
-    // Max skill reached: nothing to gain
-    if (room <= 0)
+    // Skill already capped or invalid state: nothing to gain
+    if (skillMax == 0 || level == 0 || skill >= skillMax)
         return;
 
-    // The farther player is from the cap, the easier it gets to level up the skill
-    float chance = ((float(std::max(1, (room / 5))) / (cap / 5.f)) * 100);
+    // skillGapLogGrowth controls the slope of the logarithmic catch-up portion
+    const double skillGapLogGrowth = 0.22 * (1.0 + (12.0 / level));
+    // levelCapScale normalizes the curve across realm caps and anchors the seam at room = 7
+    // TODO: Figure out if scaling of 295 to 300 is same in vanilla, tbc and wotlk when level 60
+    const double levelCapScale = 1;
 
-    // Weapon skills: increase chance by intellect
+    double baseChance = 0.0;
+
+    // Piecewise curve: logarithmic growth for catch-up, quadratic decay near the cap
+    if (room >= 7)
+        baseChance = (7.0 / skillMax) * levelCapScale
+                   + skillGapLogGrowth * std::log((room + 5.0) / 12.0);
+    else
+        baseChance = (room * room) / (7.0 * skillMax) * levelCapScale;
+
+    baseChance = std::clamp(baseChance, 0.0, 1.0);
+
+    // Weapon skills gain a small bonus from intellect
+    double intellectBonus = 0.0;
     if (!defence)
-        chance += ((chance * 0.02f) * GetStat(STAT_INTELLECT));
+    {
+        const double maxIntellectBonus = 0.10;
+        const double intellect = GetStat(STAT_INTELLECT);
+        // TODO: Figure out actual intellect scaling contribution - likely a per level value like everything else and not linearly
+        const int levelBracket =    (level <= 60) ? 60 :
+                                    (level <= 70) ? 70 :
+                                    (level <= 80) ? 80 : 255;
 
-    if (roll_chance_f(chance))
+        const double intellectMax = (level <= 60) ? 750 :
+                                    (level <= 70) ? 1500 :
+                                    (level <= 80) ? 3000 : 6000; // default fallback
+
+        intellectBonus = maxIntellectBonus *
+                         (intellect / intellectMax) *
+                         (static_cast<double>(levelBracket) / static_cast<double>(level));
+
+        intellectBonus = std::clamp(intellectBonus, 0.0, maxIntellectBonus);
+    }
+
+    // Final skill-up probability
+    const float finalChance = std::clamp(baseChance + intellectBonus, 0.0, 1.0) * 100.0f;
+
+    if (roll_chance_f(finalChance))
     {
         if (defence)
-            UpdateDefense();
+            UpdateDefense(procEx);
         else
             UpdateWeaponSkill(attType);
     }
@@ -5828,7 +5871,7 @@ void Player::LearnDefaultSkills()
     }
 }
 
-uint32 Player::GetSpellRank(SpellEntry const* spellInfo)
+uint32 Player::GetSpellRank(SpellEntry const* spellInfo) const
 {
     SkillLineAbilityMapBounds bounds = sSpellMgr.GetSkillLineAbilityMapBoundsBySpellId(spellInfo->Id);
     if (bounds.first != bounds.second)
@@ -10324,64 +10367,33 @@ void Player::DestroyItem(uint8 bag, uint8 slot, bool update)
     }
 }
 
-void Player::DestroyItemCount(uint32 item, uint32 count, bool update, bool unequip_check)
+void Player::DestroyItemCount(uint32 itemEntry, uint32 count, bool update, bool unequip_check, bool inBankAlso)
 {
-    DEBUG_LOG("STORAGE: DestroyItemCount item = %u, count = %u", item, count);
-    uint32 remcount = 0;
+    DEBUG_LOG("STORAGE: DestroyItemCount item = %u, count = %u", itemEntry, count);
 
     // in inventory
     for (int i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_END; ++i)
     {
-        if (Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+        if (Item* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
         {
-            if (pItem->GetEntry() == item && !pItem->IsInTrade())
+            if (item->GetEntry() == itemEntry && !item->IsInTrade())
             {
-                if (pItem->GetCount() + remcount <= count)
-                {
-                    // all items in inventory can unequipped
-                    remcount += pItem->GetCount();
-                    DestroyItem(INVENTORY_SLOT_BAG_0, i, update);
-
-                    if (remcount >= count)
-                        return;
-                }
-                else
-                {
-                    ItemRemovedQuestCheck(pItem->GetEntry(), count - remcount);
-                    pItem->SetCount(pItem->GetCount() - count + remcount);
-                    if (IsInWorld() && update)
-                        pItem->SendCreateUpdateToPlayer(this);
-                    pItem->SetState(ITEM_CHANGED, this);
+                DestroyItemCount(*item, count, update);
+                if (count == 0)
                     return;
-                }
             }
         }
     }
 
     for (int i = KEYRING_SLOT_START; i < KEYRING_SLOT_END; ++i)
     {
-        if (Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+        if (Item* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
         {
-            if (pItem->GetEntry() == item && !pItem->IsInTrade())
+            if (item->GetEntry() == itemEntry && !item->IsInTrade())
             {
-                if (pItem->GetCount() + remcount <= count)
-                {
-                    // all keys can be unequipped
-                    remcount += pItem->GetCount();
-                    DestroyItem(INVENTORY_SLOT_BAG_0, i, update);
-
-                    if (remcount >= count)
-                        return;
-                }
-                else
-                {
-                    ItemRemovedQuestCheck(pItem->GetEntry(), count - remcount);
-                    pItem->SetCount(pItem->GetCount() - count + remcount);
-                    if (IsInWorld() && update)
-                        pItem->SendCreateUpdateToPlayer(this);
-                    pItem->SetState(ITEM_CHANGED, this);
+                DestroyItemCount(*item, count, update);
+                if (count == 0)
                     return;
-                }
             }
         }
     }
@@ -10389,32 +10401,17 @@ void Player::DestroyItemCount(uint32 item, uint32 count, bool update, bool unequ
     // in inventory bags
     for (int i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_END; ++i)
     {
-        if (Bag* pBag = (Bag*)GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+        if (Bag* bag = dynamic_cast<Bag*>(GetItemByPos(INVENTORY_SLOT_BAG_0, i)))
         {
-            for (uint32 j = 0; j < pBag->GetBagSize(); ++j)
+            for (uint32 j = 0; j < bag->GetBagSize(); ++j)
             {
-                if (Item* pItem = pBag->GetItemByPos(j))
+                if (Item* item = bag->GetItemByPos(j))
                 {
-                    if (pItem->GetEntry() == item && !pItem->IsInTrade())
+                    if (item->GetEntry() == itemEntry && !item->IsInTrade())
                     {
-                        // all items in bags can be unequipped
-                        if (pItem->GetCount() + remcount <= count)
-                        {
-                            remcount += pItem->GetCount();
-                            DestroyItem(i, j, update);
-
-                            if (remcount >= count)
-                                return;
-                        }
-                        else
-                        {
-                            ItemRemovedQuestCheck(pItem->GetEntry(), count - remcount);
-                            pItem->SetCount(pItem->GetCount() - count + remcount);
-                            if (IsInWorld() && update)
-                                pItem->SendCreateUpdateToPlayer(this);
-                            pItem->SetState(ITEM_CHANGED, this);
+                        DestroyItemCount(*item, count, update);
+                        if (count == 0)
                             return;
-                        }
                     }
                 }
             }
@@ -10424,29 +10421,46 @@ void Player::DestroyItemCount(uint32 item, uint32 count, bool update, bool unequ
     // in equipment and bag list
     for (int i = EQUIPMENT_SLOT_START; i < INVENTORY_SLOT_BAG_END; ++i)
     {
-        if (Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+        if (Item* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
         {
-            if (pItem && pItem->GetEntry() == item && !pItem->IsInTrade())
+            if (item && item->GetEntry() == itemEntry && !item->IsInTrade())
             {
-                if (pItem->GetCount() + remcount <= count)
+                if (!unequip_check || item->GetCount() > count || CanUnequipItem(INVENTORY_SLOT_BAG_0 << 8 | i, false) == EQUIP_ERR_OK)
                 {
-                    if (!unequip_check || CanUnequipItem(INVENTORY_SLOT_BAG_0 << 8 | i, false) == EQUIP_ERR_OK)
-                    {
-                        remcount += pItem->GetCount();
-                        DestroyItem(INVENTORY_SLOT_BAG_0, i, update);
+                    DestroyItemCount(*item, count, update);
+                    if (count == 0)
+                        return;
+                }
+            }
+        }
+    }
 
-                        if (remcount >= count)
+    if (inBankAlso) // Remove items from bank as well
+    {
+        for (int i = BANK_SLOT_ITEM_START; i < BANK_SLOT_ITEM_END; ++i)
+        {
+            Item* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i);
+            if (item && item->GetEntry() == itemEntry && !item->IsInTrade())
+            {
+                DestroyItemCount(*item, count, update);
+                if (count == 0)
+                    return;
+            }
+        }
+
+        for (int i = BANK_SLOT_BAG_START; i < BANK_SLOT_BAG_END; ++i)
+        {
+            if (Bag* pBag = (Bag*)GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+            {
+                for (uint32 j = 0; j < pBag->GetBagSize(); ++j)
+                {
+                    Item* item = pBag->GetItemByPos(j);
+                    if (item && item->GetEntry() == itemEntry && !item->IsInTrade())
+                    {
+                        DestroyItemCount(*item, count, update);
+                        if (count == 0)
                             return;
                     }
-                }
-                else
-                {
-                    ItemRemovedQuestCheck(pItem->GetEntry(), count - remcount);
-                    pItem->SetCount(pItem->GetCount() - count + remcount);
-                    if (IsInWorld() && update)
-                        pItem->SendCreateUpdateToPlayer(this);
-                    pItem->SetState(ITEM_CHANGED, this);
-                    return;
                 }
             }
         }
@@ -10509,27 +10523,24 @@ void Player::DestroyConjuredItems(bool update)
                 DestroyItem(INVENTORY_SLOT_BAG_0, i, update);
 }
 
-void Player::DestroyItemCount(Item* pItem, uint32& count, bool update)
+void Player::DestroyItemCount(Item& item, uint32& count, bool update)
 {
-    if (!pItem)
-        return;
+    DEBUG_LOG("STORAGE: DestroyItemCount item (GUID: %u, Entry: %u) count = %u", item.GetGUIDLow(), item.GetEntry(), count);
 
-    DEBUG_LOG("STORAGE: DestroyItemCount item (GUID: %u, Entry: %u) count = %u", pItem->GetGUIDLow(), pItem->GetEntry(), count);
-
-    if (pItem->GetCount() <= count)
+    if (item.GetCount() <= count)
     {
-        count -= pItem->GetCount();
+        count -= item.GetCount();
 
-        DestroyItem(pItem->GetBagSlot(), pItem->GetSlot(), update);
+        DestroyItem(item.GetBagSlot(), item.GetSlot(), update);
     }
     else
     {
-        ItemRemovedQuestCheck(pItem->GetEntry(), count);
-        pItem->SetCount(pItem->GetCount() - count);
+        ItemRemovedQuestCheck(item.GetEntry(), count);
+        item.SetCount(item.GetCount() - count);
         count = 0;
         if (IsInWorld() && update)
-            pItem->SendCreateUpdateToPlayer(this);
-        pItem->SetState(ITEM_CHANGED, this);
+            item.SendCreateUpdateToPlayer(this);
+        item.SetState(ITEM_CHANGED, this);
     }
 }
 
@@ -14287,7 +14298,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     if (time_diff > 15 * MINUTE)
         soberFactor = 0;
     else
-        soberFactor = 1 - time_diff / (15.0f * MINUTE);
+        soberFactor = 1 - time_diff / (15 * MINUTE);
     uint16 newDrunkenValue = uint16(soberFactor * m_drunk);
     SetDrunkValue(newDrunkenValue);
 
@@ -17846,7 +17857,7 @@ void Player::BeforeVisibilityDestroy(Creature* creature)
 {
     if (creature->IsInCombat() && IsInCombat())
     {
-        if (!creature->GetMap()->IsDungeon() && creature->getThreatManager().HasThreat(this, true))
+        if (!creature->GetMap()->IsDungeon() && !creature->IsCombatOnlyStealth() && creature->getThreatManager().HasThreat(this, true))
             getHostileRefManager().deleteReference(creature);
         if (Pet* pet = GetPet())
             if (pet->GetVictim() == creature)
@@ -20464,4 +20475,21 @@ uint32 Player::LookupHighestLearnedRank(uint32 spellId)
             break;
     } while ((higherRank = sSpellMgr.GetNextSpellInChain(ownedRank)));
     return ownedRank;
+}
+
+void Player::UpdateRangedWeaponDependantAmmoHasteAura()
+{
+    int32 highest = 0;
+    Item* weapon = GetWeaponForAttack(RANGED_ATTACK);
+    if (weapon)
+        highest = GetMaxPositiveAuraModifierByItemClass(SPELL_AURA_MOD_RANGED_AMMO_HASTE, weapon);
+
+    if (highest != GetHighestAmmoMod())
+    {
+        if (GetHighestAmmoMod() > 0)
+            ApplyAttackTimePercentMod(RANGED_ATTACK, float(GetHighestAmmoMod()), false);
+        if (highest > 0)
+            ApplyAttackTimePercentMod(RANGED_ATTACK, float(highest), true);
+        SetHighestAmmoMod(highest);
+    }
 }

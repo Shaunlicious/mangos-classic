@@ -41,6 +41,7 @@
 #include <utility>
 #include <vector>
 #include <array>
+#include <atomic>
 
 class Object;
 class ObjectGuid;
@@ -353,6 +354,7 @@ enum eConfigBoolValues
     CONFIG_BOOL_ALWAYS_SHOW_QUEST_GREETING,
     CONFIG_BOOL_DISABLE_INSTANCE_RELOCATE,
     CONFIG_BOOL_PRELOAD_MMAP_TILES,
+    CONFIG_BOOL_REGEN_ZONE_AREA_ON_STARTUP,
     CONFIG_BOOL_VALUE_COUNT
 };
 
@@ -391,7 +393,7 @@ struct CliCommandHolder
 class World
 {
     public:
-        static volatile uint32 m_worldLoopCounter;
+        static std::atomic<uint32> m_worldLoopCounter;
 
         World();
         ~World();

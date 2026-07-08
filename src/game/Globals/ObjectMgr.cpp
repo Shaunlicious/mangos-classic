@@ -46,6 +46,12 @@
 #include "Grids/CellImpl.h"
 #include "Server/DBCStores.h"
 #include "Globals/ObjectAccessor.h"
+#include "OutdoorPvP/OutdoorPvPMgr.h"
+#include "OutdoorPvP/OutdoorPvP.h"
+#include "World/WorldState.h"
+
+#include "MotionGenerators/MoveMap.h"
+
 #include "Entities/ItemEnchantmentMgr.h"
 #include "Loot/LootMgr.h"
 #include "World/WorldState.h"
@@ -1455,7 +1461,7 @@ void ObjectMgr::LoadSpawnGroups()
                 maxRandom += randomEntry.MaxCount;
                 if (randomEntry.Chance == 0)
                     maxCount = true;
-            }                
+            }
             if (maxCount)
                 entry.MaxCount = entry.DbGuids.size();
             else
@@ -4154,7 +4160,7 @@ void ObjectMgr::LoadGroups()
                  "`groups`.groupId, "
                  // 7
                  "instance.encountersMask "
-                 "FROM group_instance LEFT JOIN instance ON instance = id LEFT JOIN `groups` ON `groups`.leaderGUID = group_instance.leaderGUID ORDER BY leaderGuid"
+                 "FROM group_instance LEFT JOIN instance ON instance = id LEFT JOIN `groups` ON `groups`.leaderGUID = group_instance.leaderGUID ORDER BY group_instance.leaderGuid"
              );
 
     if (!queryResult)
@@ -6042,6 +6048,69 @@ void ObjectMgr::LoadAreatriggerLocales()
 
     sLog.outString(">> Loaded %u locales_areatrigger_teleport.", count);
     sLog.outString();
+}
+
+void ObjectMgr::GenerateZoneAndAreaIds()
+{
+    WorldDatabase.DirectExecute("TRUNCATE creature_zone");
+    WorldDatabase.DirectExecute("TRUNCATE gameobject_zone");
+
+    std::string baseCreature = "INSERT INTO creature_zone(Guid, ZoneId, AreaId) VALUES";
+    int i = 0;
+    int total = 0;
+    std::string query = "";
+    for (auto& data : mCreatureDataMap)
+    {
+        CreatureData const& creature = data.second;
+        uint32 zoneId, areaId;
+        TerrainInfo* info = sTerrainMgr.LoadTerrain(creature.mapid);
+        MMAP::MMapFactory::createOrGetMMapManager()->loadMapInstance(sWorld.GetDataPath(), creature.mapid, 0);
+        CellPair p = MaNGOS::ComputeCellPair(creature.posX, creature.posY);
+        Cell cell(p);
+        GridPair gp(cell.GridX(), cell.GridY());
+        int gx = (MAX_NUMBER_OF_GRIDS - 1) - gp.x_coord;
+        int gy = (MAX_NUMBER_OF_GRIDS - 1) - gp.y_coord;
+        info->LoadMapAndVMap(gx, gy);
+        info->GetZoneAndAreaId(zoneId, areaId, creature.posX, creature.posY, creature.posZ);
+
+        query += "(" + std::to_string(data.first) + "," + std::to_string(zoneId) + "," + std::to_string(areaId) + "),";
+        ++i; ++total;
+        if (i >= 100)
+        {
+            std::string finalQuery = baseCreature + query;
+            finalQuery[finalQuery.length() - 1] = ';';
+            WorldDatabase.DirectExecute(finalQuery.c_str());
+            query = "";
+            i = 0;
+        }
+    }
+
+    std::string baseGo = "INSERT INTO gameobject_zone(Guid, ZoneId, AreaId) VALUES";
+    for (auto& data : mGameObjectDataMap)
+    {
+        GameObjectData const& go = data.second;
+        uint32 zoneId, areaId;
+        TerrainInfo* info = sTerrainMgr.LoadTerrain(go.mapid);
+        MMAP::MMapFactory::createOrGetMMapManager()->loadMapInstance(sWorld.GetDataPath(), go.mapid, 0);
+        CellPair p = MaNGOS::ComputeCellPair(go.posX, go.posY);
+        Cell cell(p);
+        GridPair gp(cell.GridX(), cell.GridY());
+        int gx = (MAX_NUMBER_OF_GRIDS - 1) - gp.x_coord;
+        int gy = (MAX_NUMBER_OF_GRIDS - 1) - gp.y_coord;
+        info->LoadMapAndVMap(gx, gy);
+        info->GetZoneAndAreaId(zoneId, areaId, go.posX, go.posY, go.posZ + 1);
+
+        query += "(" + std::to_string(data.first) + "," + std::to_string(zoneId) + "," + std::to_string(areaId) + "),";
+        ++i; ++total;
+        if (i >= 100)
+        {
+            std::string finalQuery = baseGo + query;
+            finalQuery[finalQuery.length() - 1] = ';';
+            WorldDatabase.DirectExecute(finalQuery.c_str());
+            query = "";
+            i = 0;
+        }
+    }
 }
 
 // not very fast function but it is called only once a day, or on starting-up
@@ -9639,7 +9708,7 @@ void ObjectMgr::LoadCreatureTemplateSpells(std::shared_ptr<CreatureSpellListCont
                 spell.ScriptId = 0;
                 spell.DisabledForAI = !spellInfo || spellInfo->HasAttribute(SPELL_ATTR_EX_NO_AUTOCAST_AI);
                 spells.emplace(i, spell);
-            }            
+            }
         } while (result->NextRow());
     }
 
@@ -9855,13 +9924,13 @@ bool DoDisplayText(WorldObject* source, int32 entry, Unit const* target, uint32 
         {
             case CHAT_TYPE_ZONE_YELL:
             case CHAT_TYPE_ZONE_EMOTE:
-                source->PlayDirectSound(sound, PlayPacketParameters(PLAY_ZONE, source->GetZoneId()));
+                source->PlayDirectSound(sound, PlayPacketParameters(PlayPacketSettings::ZONE, source->GetZoneId()));
                 break;
             case CHAT_TYPE_WHISPER:
             case CHAT_TYPE_BOSS_WHISPER:
                 // An error will be displayed for the text
                 if (target && target->GetTypeId() == TYPEID_PLAYER)
-                    source->PlayDirectSound(sound, PlayPacketParameters(PLAY_TARGET, (Player const*)target));
+                    source->PlayDirectSound(sound, PlayPacketParameters(PlayPacketSettings::TARGET, (Player const*)target));
                 break;
             default:
                 source->PlayDirectSound(sound);

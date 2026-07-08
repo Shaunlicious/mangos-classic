@@ -576,6 +576,7 @@ void Player::UpdateWeaponDependantStats(WeaponAttackType attType)
             break;
         case RANGED_ATTACK:
             UpdateWeaponHitChances(attType);
+            UpdateRangedWeaponDependantAmmoHasteAura();
             break;
     }
 }
@@ -799,6 +800,18 @@ float Creature::GetConditionalTotalPhysicalDamageModifier(WeaponAttackType attTy
     return result;
 }
 
+void Creature::UpdateMaxHealth()
+{
+    UnitMods unitMod = UNIT_MOD_HEALTH;
+
+    float value = GetModifierValue(unitMod, BASE_VALUE) + GetCreateHealth();
+    value *= GetModifierValue(unitMod, BASE_PCT) * m_healthMultiplier; // health multiplier affects base health AND stamina increase
+    value += GetModifierValue(unitMod, TOTAL_VALUE) + GetHealthBonusFromStamina() * m_healthMultiplier;
+    value *= GetModifierValue(unitMod, TOTAL_PCT);
+
+    SetMaxHealth(uint32(std::round(std::max(value, 1.f))));
+}
+
 float Creature::GetHealthBonusFromStamina() const
 {
     // only use diff until stamina per level coefficient for npcs is known
@@ -845,10 +858,11 @@ void Pet::UpdateMaxHealth()
 
     UnitMods unitMod = UNIT_MOD_HEALTH;
     float stamina = GetStat(STAT_STAMINA) - GetCreateStat(STAT_STAMINA); // TODO: Remove create stat usage like this
+    float addedStaminaBonus = std::max((stamina - 20) * 10, 0.f) + std::min(20.f, stamina);
 
     float value = GetModifierValue(unitMod, BASE_VALUE) + GetCreateHealth();
     value *= GetModifierValue(unitMod, BASE_PCT);
-    value += GetModifierValue(unitMod, TOTAL_VALUE) + std::max((stamina - 20) * 10 + 20, 0.f);
+    value += GetModifierValue(unitMod, TOTAL_VALUE) + addedStaminaBonus;
     value *= GetModifierValue(unitMod, TOTAL_PCT);
 
     SetMaxHealth((uint32)value);

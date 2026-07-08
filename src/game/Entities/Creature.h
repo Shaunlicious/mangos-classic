@@ -51,7 +51,7 @@ enum CreatureFlagsExtra
     CREATURE_EXTRA_FLAG_NO_PARRY               = 0x00000004,       // 4 creature can't parry
     CREATURE_EXTRA_FLAG_NO_PARRY_HASTEN        = 0x00000008,       // 8 creature can't counter-attack at parry
     CREATURE_EXTRA_FLAG_NO_BLOCK               = 0x00000010,       // 16 creature can't block
-    CREATURE_EXTRA_FLAG_UNUSED                 = 0x00000020,       // 32
+    CREATURE_EXTRA_FLAG_RUN_DURING_WANDER      = 0x00000020,       // 32 15% chance during wander (random movement)
     CREATURE_EXTRA_FLAG_UNUSED2                = 0x00000040,       // 64
     CREATURE_EXTRA_FLAG_INVISIBLE              = 0x00000080,       // 128 creature is always invisible for player (mostly trigger creatures)
     CREATURE_EXTRA_FLAG_UNUSED3                = 0x00000100,       // 256
@@ -205,6 +205,36 @@ struct CreatureInfo
     {
         return bool(CreatureTypeFlags(TypeFlags) & flags);
     }
+
+    bool HasFlag(CreatureStaticFlags flags) const
+    {
+        return bool(CreatureStaticFlags(StaticFlags) & flags);
+    }
+
+    bool HasFlag(CreatureStaticFlags2 flags) const
+    {
+        return bool(CreatureStaticFlags2(StaticFlags2) & flags);
+    }
+
+    bool HasFlag(CreatureStaticFlags3 flags) const
+    {
+        return bool(CreatureStaticFlags3(StaticFlags3) & flags);
+    }
+
+    bool HasFlag(CreatureStaticFlags4 flags) const
+    {
+        return bool(CreatureStaticFlags4(StaticFlags4) & flags);
+    }
+
+    bool IsLargeOrBiggerCreature() const
+    {
+        return HasFlag(CreatureStaticFlags::LARGE_AOI) || HasFlag(CreatureStaticFlags3::GIGANTIC_AOI) || HasFlag(CreatureStaticFlags3::INFINITE_AOI);
+    }
+
+    bool HasFlag(CreatureFlagsExtra flags) const
+    {
+        return bool(ExtraFlags & flags);
+    }
 };
 
 struct CreatureCooldowns
@@ -232,8 +262,9 @@ struct EquipmentInfoRaw
 
 enum SpawnFlags
 {
-    SPAWN_FLAG_RUN_ON_SPAWN = 0x01,
-    SPAWN_FLAG_HOVER        = 0x02,
+    SPAWN_FLAG_RUN_ON_SPAWN     = 0x01,
+    SPAWN_FLAG_HOVER            = 0x02,
+    SPAWN_FLAG_DISABLE_GRAVITY  = 0x04,
 };
 
 struct CreatureSpawnTemplate
@@ -252,6 +283,7 @@ struct CreatureSpawnTemplate
 
     bool IsRunning() const { return (spawnFlags & SPAWN_FLAG_RUN_ON_SPAWN) != 0; }
     bool IsHovering() const { return (spawnFlags & SPAWN_FLAG_HOVER) != 0; }
+    bool IsGravityDisabled() const { return (spawnFlags & SPAWN_FLAG_DISABLE_GRAVITY) != 0; }
 };
 
 // from `creature` table
@@ -679,6 +711,7 @@ class Creature : public Unit
         bool UpdateAllStats() override;
         void UpdateResistances(uint32 school) override;
         void UpdateArmor() override;
+        void UpdateMaxHealth() override;
         void UpdateAttackPowerAndDamage(bool ranged = false) override;
         void UpdateDamagePhysical(WeaponAttackType attType) override;
         virtual float GetConditionalTotalPhysicalDamageModifier(WeaponAttackType type) const;
@@ -901,6 +934,9 @@ class Creature : public Unit
 
         void SetModelRunSpeed(float runSpeed) override { m_modelRunSpeed = runSpeed; }
 
+        bool IsCombatOnlyStealth() const { return m_combatOnlyStealth; }
+        void SetCombatOnlyStealth(bool state) { m_combatOnlyStealth = state; }
+
     protected:
         bool CreateFromProto(uint32 dbGuid, uint32 guidlow, CreatureInfo const* cinfo, const CreatureData* data = nullptr, GameEventCreatureData const* eventData = nullptr);
         bool InitEntry(uint32 Entry, const CreatureData* data = nullptr, GameEventCreatureData const* eventData = nullptr);
@@ -978,12 +1014,16 @@ class Creature : public Unit
 
         bool m_imposedCooldown;
 
+        float m_healthMultiplier;
+
     private:
         GridReference<Creature> m_gridRef;
         CreatureInfo const* m_creatureInfo;
 
         CreatureInfo const* m_mountInfo;
         float m_modelRunSpeed;
+
+        bool m_combatOnlyStealth;
 };
 
 class ForcedDespawnDelayEvent : public BasicEvent
