@@ -60,7 +60,7 @@
 #include <limits>
 #include <array>
 
-float moveSpeedMultiplier = 1.2f; // Added to increase base movement speed across the board 
+float moveSpeedMultiplier = 1.05f; // Added to increase base movement speed across the board 
 float baseMoveSpeed[MAX_MOVE_TYPE] =
 {
     2.5f * moveSpeedMultiplier,                                                   // MOVE_WALK
