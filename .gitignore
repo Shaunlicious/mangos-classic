@@ -97,3 +97,4 @@ cmake_install.cmake
 # Module files
 #
 src/modules/
+sql/updates/Update-CMaNGOS-DB.txt
