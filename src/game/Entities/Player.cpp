@@ -94,6 +94,12 @@
 extern Config botConfig;
 #endif
 
+// Vitality WoW Code
+namespace
+{
+    constexpr float PLAYER_BASE_MOVEMENT_BONUS = 1.05f;
+}
+
 // [-ZERO] need recheck, some values known not existed in 1.12.1
 enum CharacterFlags
 {
@@ -20492,4 +20498,22 @@ void Player::UpdateRangedWeaponDependantAmmoHasteAura()
             ApplyAttackTimePercentMod(RANGED_ATTACK, float(highest), true);
         SetHighestAmmoMod(highest);
     }
+}
+
+// Vitality WoW Code
+
+// Vitality WoW movement speed modifications
+float Player::GetMovementSpeedModifier() const
+{
+    float modifier = 1.0f;
+
+    //modifier *= 1.05f; // change player base movement speed (hardcoded locally)
+    modifier *= PLAYER_BASE_MOVEMENT_BONUS; // change player base movement speed
+
+    // Future:
+    // modifier *= GetVitalityBonus();
+    // modifier *= GetEncumbranceModifier();
+    // modifier *= GetStaminaModifier();
+
+    return modifier;
 }

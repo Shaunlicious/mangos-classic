@@ -60,7 +60,8 @@
 #include <limits>
 #include <array>
 
-float moveSpeedMultiplier = 1.05f; // Added to increase base movement speed across the board 
+/*
+float moveSpeedMultiplier = 1.0f; // Added to increase base movement speed across the board 
 float baseMoveSpeed[MAX_MOVE_TYPE] =
 {
     2.5f * moveSpeedMultiplier,                                                   // MOVE_WALK
@@ -68,7 +69,17 @@ float baseMoveSpeed[MAX_MOVE_TYPE] =
     4.5f * moveSpeedMultiplier,                                                   // MOVE_RUN_BACK
     4.722222f * moveSpeedMultiplier,                                              // MOVE_SWIM
     2.5f * moveSpeedMultiplier,                                                   // MOVE_SWIM_BACK
-    3.141594f * moveSpeedMultiplier,                                              // MOVE_TURN_RATE
+    3.141594f                                                                     // MOVE_TURN_RATE
+};
+*/
+float baseMoveSpeed[MAX_MOVE_TYPE] =
+    {
+        2.5f,                           // MOVE_WALK
+        7.0f,                           // MOVE_RUN
+        4.5f,                           // MOVE_RUN_BACK
+        4.722222f,                      // MOVE_SWIM
+        2.5f,                           // MOVE_SWIM_BACK
+        3.141594f,                      // MOVE_TURN_RATE
 };
 
 typedef std::array<uint32, NUM_SPELL_PARTIAL_RESISTS> SpellPartialResistChanceEntry;
@@ -8425,9 +8436,19 @@ float Unit::GetSpeedInMotion() const
     return (movespline->Finalized() ? GetSpeed(m_movementInfo.GetSpeedType()) : movespline->Speed());
 }
 
+// adjust player speed without affecting other creatures
 float Unit::GetSpeed(UnitMoveType mtype) const
 {
-    return m_speed_rate[mtype] * baseMoveSpeed[mtype];
+    float speed = m_speed_rate[mtype] * baseMoveSpeed[mtype];
+
+    if (GetTypeId() == TYPEID_PLAYER){
+    
+        const Player* player = static_cast<const Player*>(this);
+        speed *= player->GetMovementSpeedModifier(); // set in Player.cpp
+        
+    }
+
+    return speed;
 }
 
 float Unit::GetSpeedRateInMotion() const

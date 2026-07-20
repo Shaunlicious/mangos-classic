@@ -879,6 +879,9 @@ class Player : public Unit
         explicit Player(WorldSession* session);
         ~Player();
 
+        // Vitality WoW Code
+        float GetMovementSpeedModifier() const;
+
         void CleanupsBeforeDelete() override;
 
         void AddToWorld() override;
