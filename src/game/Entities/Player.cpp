@@ -61,6 +61,7 @@
 #include "Loot/LootMgr.h"
 #include "World/WorldState.h"
 #include "Anticheat/Anticheat.hpp"
+#include "ClassicPlusSystems/Vitality/VitalityMgr.h"
 
 #ifdef BUILD_DEPRECATED_PLAYERBOT
 #include "PlayerBot/Base/PlayerbotAI.h"
@@ -480,6 +481,11 @@ Player::Player(WorldSession* session): Unit(), m_taxiTracker(*this), m_mover(thi
     m_playerbotAI = nullptr;
     m_playerbotMgr = nullptr;
 #endif
+
+    //***************** Vitality WoW Code *****************//
+    m_hunger = 50;
+    m_hungerTimer = 0;
+    //***************** Vitality WoW Code *****************//
 
     m_speakTime = 0;
     m_speakCount = 0;
@@ -1383,6 +1389,8 @@ void Player::Update(const uint32 diff)
 {
     if (!IsInWorld())
         return;
+
+    m_vitalityMgr.Update(this, diff);
 
     // Update ticket squelch timer
     if (WorldSession* session = GetSession())
@@ -20500,7 +20508,7 @@ void Player::UpdateRangedWeaponDependantAmmoHasteAura()
     }
 }
 
-// Vitality WoW Code
+//***************** Vitality WoW Code *****************//
 
 // Vitality WoW movement speed modifications
 float Player::GetMovementSpeedModifier() const
@@ -20517,3 +20525,4 @@ float Player::GetMovementSpeedModifier() const
 
     return modifier;
 }
+//***************** Vitality WoW Code *****************//

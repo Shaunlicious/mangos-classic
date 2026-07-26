@@ -8444,7 +8444,7 @@ float Unit::GetSpeed(UnitMoveType mtype) const
     if (GetTypeId() == TYPEID_PLAYER){
     
         const Player* player = static_cast<const Player*>(this);
-        speed *= player->GetMovementSpeedModifier(); // set in Player.cpp
+        speed *= player->GetMovementSpeedModifier(); // GetMovementSpeedModifier() is set in Player.cpp, line 100
         
     }
 

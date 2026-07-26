@@ -189,7 +189,7 @@ endif()
 add_definitions(-DBOOST_ALL_NO_LIB)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_NO_BOOST_CMAKE ON)   # should fix build for boost 1.71
-#set(Boost_DEBUG ON)
+set(Boost_DEBUG ON)
 
 # In our case use new way to treat BOOST_ROOT environement variable
 if (POLICY CMP0074)
@@ -206,6 +206,7 @@ endif()
 
 # Find needed packages and if necessery abort if something important is missing
 find_package(Boost 1.70.0 REQUIRED COMPONENTS program_options thread regex serialization filesystem)
+add_definitions(-DBOOST_ALL_NO_LIB) # Added to solve VS linkage error following build generation -----------
 
 if (APPLE)
     find_package(ICU COMPONENTS uc i18n data REQUIRED)

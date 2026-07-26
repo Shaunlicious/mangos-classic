@@ -42,6 +42,7 @@
 #include "Loot/LootMgr.h"
 #include "Cinematics/CinematicMgr.h"
 #include "BattleGround/BattleGroundDefines.h"
+#include "ClassicPlusSystems/Vitality/VitalityMgr.h"
 
 #include<vector>
 
@@ -2245,6 +2246,24 @@ class Player : public Unit
         void SetHighestAmmoMod(int32 amount) { m_highestAmmoMod = amount; }
 
         void UpdateRangedWeaponDependantAmmoHasteAura();
+
+        //***************** Vitality WoW Code *****************//
+        uint8 GetHunger() const
+        {
+            return m_hunger;
+        }
+
+        void SetHunger(uint8 value)
+        {
+            m_hunger = value;
+        }
+
+        uint32& GetHungerTimer()
+        {
+            return m_hungerTimer;
+        }
+        //***************** Vitality WoW Code *****************//
+
     protected:
         /*********************************************************/
         /***               BATTLEGROUND SYSTEM                 ***/
@@ -2458,6 +2477,12 @@ class Player : public Unit
         bool m_isDebuggingAreaTriggers;
 
     private:
+        //***************** Vitality WoW Code *****************//
+        VitalityMgr m_vitalityMgr;
+        uint8 m_hunger;
+        uint32 m_hungerTimer;
+        //***************** Vitality WoW Code *****************//
+
         // internal common parts for CanStore/StoreItem functions
         InventoryResult _CanStoreItem_InSpecificSlot(uint8 bag, uint8 slot, ItemPosCountVec& dest, ItemPrototype const* pProto, uint32& count, bool swap, Item* pSrcItem) const;
         InventoryResult _CanStoreItem_InBag(uint8 bag, ItemPosCountVec& dest, ItemPrototype const* pProto, uint32& count, bool merge, bool non_specialized, Item* pSrcItem, uint8 skip_bag, uint8 skip_slot) const;
