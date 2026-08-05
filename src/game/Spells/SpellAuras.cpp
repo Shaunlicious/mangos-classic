@@ -50,6 +50,8 @@
 #include "AI/ScriptDevAI/include/sc_grid_searchers.h"
 #include "Spells/SpellStacking.h"
 
+#include "ClassicPlusSystems/Vitality/EatDrinkTracker.h" // Vitality wow code - Used to track player eating/drinking
+
 #define NULL_AURA_SLOT 0xFF
 
 /**
@@ -3616,6 +3618,8 @@ void Aura::HandleModRegen(bool apply, bool /*Real*/)        // eating
 
     m_periodicTimer = 5000;
     m_isPeriodic = apply;
+
+    sEatDrinkTracker.OnFoodAuraToggled(this, apply);
 }
 
 void Aura::HandleModPowerRegen(bool apply, bool Real)       // drinking
@@ -3639,6 +3643,8 @@ void Aura::HandleModPowerRegen(bool apply, bool Real)       // drinking
         ((Player*)GetTarget())->UpdateManaRegen();
 
     m_isPeriodic = apply;
+
+    sEatDrinkTracker.OnDrinkAuraToggled(this, apply);
 }
 
 void Aura::HandleModPowerRegenPCT(bool /*apply*/, bool Real)

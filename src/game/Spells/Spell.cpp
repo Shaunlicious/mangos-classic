@@ -3364,6 +3364,26 @@ void Spell::_handle_immediate_phase()
     for (auto& ihit : m_UniqueItemInfo)
         DoAllEffectOnTarget(&ihit);
 
+    //***************** Vitality WoW Code *****************//
+    if (m_CastItem &&
+        m_trueCaster &&
+        m_trueCaster->GetTypeId() == TYPEID_PLAYER)
+    {
+        sEatDrinkTracker.RegisterPendingItem(
+            m_trueCaster->GetObjectGuid(),
+            m_CastItem->GetEntry());
+    }
+    /* temporary VWoW debug output for cast item
+    if (m_CastItem)
+    {
+        sLog.outString(
+            "CAST ITEM %u %s",
+            m_CastItem->GetEntry(),
+            m_CastItem->GetProto()->Name1);
+    }
+    */
+    //***************** Vitality WoW Code *****************//
+
     // take cast item after processing items
     TakeCastItem();
 

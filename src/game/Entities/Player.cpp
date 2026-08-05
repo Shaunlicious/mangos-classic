@@ -95,11 +95,12 @@
 extern Config botConfig;
 #endif
 
-// Vitality WoW Code
+//***************** Vitality WoW Code *****************//
 namespace
 {
     constexpr float PLAYER_BASE_MOVEMENT_BONUS = 1.05f;
 }
+//***************** Vitality WoW Code *****************//
 
 // [-ZERO] need recheck, some values known not existed in 1.12.1
 enum CharacterFlags
@@ -485,6 +486,7 @@ Player::Player(WorldSession* session): Unit(), m_taxiTracker(*this), m_mover(thi
     //***************** Vitality WoW Code *****************//
     m_hunger = 50;
     m_hungerTimer = 0;
+    m_currentHungerState = HungerState::Normal;
     //***************** Vitality WoW Code *****************//
 
     m_speakTime = 0;
@@ -1389,9 +1391,24 @@ void Player::Update(const uint32 diff)
 {
     if (!IsInWorld())
         return;
-
+    //***************** Vitality WoW Code *****************//
     m_vitalityMgr.Update(this, diff);
 
+    // Delay sending vitality login status to ensure text comes after channel join, MOTD and other login messages
+    if (m_sendVitalityLoginStatus)
+    {
+        if (m_vitalityLoginTimer <= diff)
+        {
+            m_sendVitalityLoginStatus = false;
+            m_hungerSystem.SendStatus(this);
+        }
+        else
+        {
+            m_vitalityLoginTimer -= diff;
+        }
+    }
+    //***************** Vitality WoW Code *****************//
+     
     // Update ticket squelch timer
     if (WorldSession* session = GetSession())
         session->m_ticketSquelchTimer.Update(diff);
@@ -14510,6 +14527,14 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
 
     m_fishingSteps = fields[55].GetUInt32();
 
+    //***************** Vitality WoW Code *****************//
+    SetHunger(fields[56].GetUInt8());
+    m_hungerSystem.UpdateBuffs(this);
+    m_sendVitalityLoginStatus = true;
+    m_vitalityLoginTimer = 1200;
+    //m_hungerSystem.SendStatus(this);
+    //***************** Vitality WoW Code *****************//
+
     DEBUG_FILTER_LOG(LOG_FILTER_PLAYER_STATS, "The value of player %s after load item and aura is: ", m_name.c_str());
     outDebugStatsValues();
 
@@ -15573,7 +15598,7 @@ void Player::SaveToDB()
                               "death_expire_time, taxi_path, "
                               "honor_highest_rank, honor_standing, stored_honor_rating , stored_dishonorable_kills, stored_honorable_kills, "
                               "watchedFaction, drunk, health, power1, power2, power3, "
-                              "power4, power5, exploredZones, equipmentCache, ammoId, actionBars, fishingSteps) "
+                              "power4, power5, exploredZones, equipmentCache, ammoId, actionBars, fishingSteps, vitality_hunger) "
                               "VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
                               "?, ?, ?, ?, ?, "
                               "?, ?, ?, "
@@ -15582,7 +15607,7 @@ void Player::SaveToDB()
                               "?, ?, "
                               "?, ?, ?, ?, ?, "
                               "?, ?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?, ?, ?, ?) ");
+                              "?, ?, ?, ?, ?, ?, ?, ?) "); //***************** Vitality WoW Code added *****************// ? added too!!! This designates a placeholder
 
     uberInsert.addUInt32(GetGUIDLow());
     uberInsert.addUInt32(GetSession()->GetAccountId());
@@ -15700,6 +15725,10 @@ void Player::SaveToDB()
     uberInsert.addUInt32(uint32(GetByteValue(PLAYER_FIELD_BYTES, 2)));
 
     uberInsert.addUInt8(m_fishingSteps);
+
+    //***************** Vitality WoW Code *****************//
+    uberInsert.addUInt8(GetHunger());
+    //***************** Vitality WoW Code *****************//
 
     uberInsert.Execute();
 
@@ -20509,6 +20538,15 @@ void Player::UpdateRangedWeaponDependantAmmoHasteAura()
 }
 
 //***************** Vitality WoW Code *****************//
+HungerState Player::GetHungerState() const
+{
+    return m_currentHungerState;
+}
+
+void Player::SetHungerState(HungerState state)
+{
+    m_currentHungerState = state;
+}
 
 // Vitality WoW movement speed modifications
 float Player::GetMovementSpeedModifier() const

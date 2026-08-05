@@ -80,6 +80,19 @@ typedef std::deque<Mail*> PlayerMails;
 // TODO: Maybe this can be implemented in configuration file.
 #define PLAYER_NEW_INSTANCE_LIMIT_PER_HOUR 5
 
+//***************** Vitality WoW Code *****************//
+/*
+enum HungerState
+{
+    STARVING = 0,
+    HUNGRY,
+    NORMAL,
+    WELL_FED,
+    THRIVING
+};
+*/
+//***************** Vitality WoW Code *****************//
+
 enum EnvironmentFlags
 {
     ENVIRONMENT_FLAG_NONE           = 0x00,
@@ -880,8 +893,9 @@ class Player : public Unit
         explicit Player(WorldSession* session);
         ~Player();
 
-        // Vitality WoW Code
+        //***************** Vitality WoW Code *****************//
         float GetMovementSpeedModifier() const;
+        //***************** Vitality WoW Code *****************//
 
         void CleanupsBeforeDelete() override;
 
@@ -1822,7 +1836,10 @@ class Player : public Unit
             for (int i = STAT_STRENGTH; i < MAX_STATS; ++i) SetFloatValue(PLAYER_FIELD_POSSTAT0 + i, 0);
             for (int i = STAT_STRENGTH; i < MAX_STATS; ++i) SetFloatValue(PLAYER_FIELD_NEGSTAT0 + i, 0);
         }
-        void ApplyStatBuffMod(Stats stat, float val, bool apply) { ApplyModSignedFloatValue((val > 0 ? PLAYER_FIELD_POSSTAT0 + stat : PLAYER_FIELD_NEGSTAT0 + stat), val, apply); }
+        void ApplyStatBuffMod(Stats stat, float val, bool apply) 
+        { 
+            ApplyModSignedFloatValue((val > 0 ? PLAYER_FIELD_POSSTAT0 + stat : PLAYER_FIELD_NEGSTAT0 + stat), val, apply); 
+        }
         void ApplyStatPercentBuffMod(Stats stat, float val, bool apply)
         {
             ApplyPercentModFloatValue(PLAYER_FIELD_POSSTAT0 + stat, val, apply);
@@ -2262,6 +2279,10 @@ class Player : public Unit
         {
             return m_hungerTimer;
         }
+
+        //***************** Vitality WoW Code *****************//
+        HungerState GetHungerState() const;
+        void SetHungerState(HungerState state);
         //***************** Vitality WoW Code *****************//
 
     protected:
@@ -2479,8 +2500,15 @@ class Player : public Unit
     private:
         //***************** Vitality WoW Code *****************//
         VitalityMgr m_vitalityMgr;
-        uint8 m_hunger;
+        uint8 m_hunger = 50;
+        uint8 m_hungerState = 2;
         uint32 m_hungerTimer;
+        HungerState m_currentHungerState;
+
+        // Used to delay the vitality login status packet so they appear after default chat channels are joined by the player client
+        bool m_sendVitalityLoginStatus = false;
+        uint32 m_vitalityLoginTimer = 0;
+        HungerSystem m_hungerSystem;
         //***************** Vitality WoW Code *****************//
 
         // internal common parts for CanStore/StoreItem functions
